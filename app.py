@@ -40,6 +40,9 @@ def create_driver():
     options.add_argument("--disable-setuid-sandbox")
     options.add_argument("--remote-debugging-port=9222")
     
+    # Добавляем user-agent для имитации реального браузера
+    options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    
     options.binary_location = "/usr/bin/google-chrome"
     
     service = Service()
@@ -57,17 +60,57 @@ def register_rambler_email(email: str, password: str):
     try:
         driver = create_driver()
         driver.get("https://id.rambler.ru/registration")
+        
+        # Ждем загрузки страницы
+        wait = WebDriverWait(driver, 15)
         time.sleep(5)
         
-        # Расширенный поиск поля email
+        logger.info(f"Текущий URL после загрузки: {driver.current_url}")
+        
+        # Сохраняем HTML для отладки
+        html_source = driver.page_source[:2000]
+        logger.info(f"HTML страницы (первые 2000 символов): {html_source[:500]}...")
+        
+        # Пробуем найти iframe с формой
+        try:
+            iframes = driver.find_elements(By.TAG_NAME, "iframe")
+            logger.info(f"Найдено iframe: {len(iframes)}")
+            for i, iframe in enumerate(iframes):
+                driver.switch_to.frame(iframe)
+                inputs_in_iframe = driver.find_elements(By.TAG_NAME, "input")
+                if inputs_in_iframe:
+                    logger.info(f"В iframe {i} найдено полей: {len(inputs_in_iframe)}")
+                    break
+                else:
+                    driver.switch_to.default_content()
+        except Exception as e:
+            logger.warning(f"Ошибка при работе с iframe: {e}")
+            driver.switch_to.default_content()
+        
+        # Поиск ВСЕХ полей ввода
+        all_inputs = driver.find_elements(By.TAG_NAME, "input")
+        logger.info(f"Всего найдено полей ввода: {len(all_inputs)}")
+        
+        # Логируем все поля для отладки
+        for i, inp in enumerate(all_inputs):
+            input_type = inp.get_attribute("type")
+            input_name = inp.get_attribute("name")
+            input_id = inp.get_attribute("id")
+            input_placeholder = inp.get_attribute("placeholder")
+            input_class = inp.get_attribute("class")
+            logger.info(f"Поле {i}: type={input_type}, name={input_name}, id={input_id}, placeholder={input_placeholder}, class={input_class}")
+        
+        # Поиск поля email
         email_field = None
         
-        # Пробуем разные способы найти поле
-        selectors = [
+        # Пробуем разные способы найти поле email
+        email_selectors = [
             (By.ID, "login"),
             (By.ID, "email"),
+            (By.ID, "username"),
             (By.NAME, "login"),
             (By.NAME, "email"),
+            (By.NAME, "username"),
             (By.CSS_SELECTOR, "input[name='login']"),
             (By.CSS_SELECTOR, "input[name='email']"),
             (By.CSS_SELECTOR, "input[type='email']"),
@@ -75,43 +118,41 @@ def register_rambler_email(email: str, password: str):
             (By.XPATH, "//input[@placeholder='Email']"),
             (By.XPATH, "//input[@placeholder='Логин']"),
             (By.XPATH, "//input[@placeholder='E-mail']"),
+            (By.XPATH, "//input[contains(@placeholder, 'mail')]"),
+            (By.XPATH, "//input[contains(@placeholder, 'email')]"),
             (By.XPATH, "//label[contains(text(), 'Email')]/following-sibling::input"),
             (By.XPATH, "//label[contains(text(), 'Логин')]/following-sibling::input"),
+            (By.XPATH, "//div[contains(@class, 'login')]//input"),
+            (By.XPATH, "//div[contains(@class, 'email')]//input"),
         ]
         
-        for by, selector in selectors:
+        for by, selector in email_selectors:
             try:
-                email_field = driver.find_element(by, selector)
-                if email_field and email_field.is_displayed():
-                    logger.info(f"Найдено поле email: {selector}")
+                elements = driver.find_elements(by, selector)
+                for elem in elements:
+                    if elem and elem.is_displayed() and elem.is_enabled():
+                        email_field = elem
+                        logger.info(f"Найдено поле email по селектору: {selector}")
+                        break
+                if email_field:
                     break
-                else:
-                    email_field = None
-            except:
+            except Exception as e:
                 continue
         
-        # Если не нашли, пробуем найти все поля ввода и выбрать подходящее
+        # Если не нашли, ищем первое текстовое поле
         if not email_field:
-            all_inputs = driver.find_elements(By.TAG_NAME, "input")
             for inp in all_inputs:
                 input_type = inp.get_attribute("type")
-                input_name = inp.get_attribute("name")
-                input_placeholder = inp.get_attribute("placeholder")
-                
-                logger.info(f"Найден input: type={input_type}, name={input_name}, placeholder={input_placeholder}")
-                
-                if input_type == "email" or "login" in str(input_name).lower() or "email" in str(input_placeholder).lower():
+                if input_type in ["text", "email"]:
                     email_field = inp
+                    logger.info(f"Выбрано первое текстовое поле как email: {inp.get_attribute('name')}")
                     break
-                
-                if not email_field and input_type != "password":
-                    email_field = inp
         
         if not email_field:
             screenshot_path = f"debug_email_{int(time.time())}.png"
             driver.save_screenshot(screenshot_path)
             logger.error(f"Email поле не найдено. Скриншот: {screenshot_path}")
-            return False, "Поле email не найдено. Возможно, структура страницы изменилась"
+            return False, f"Поле email не найдено. Скриншот сохранен: {screenshot_path}"
         
         # Вводим email
         email_field.clear()
@@ -124,41 +165,62 @@ def register_rambler_email(email: str, password: str):
         
         password_selectors = [
             (By.ID, "password"),
+            (By.ID, "pass"),
             (By.NAME, "password"),
+            (By.NAME, "pass"),
             (By.CSS_SELECTOR, "input[type='password']"),
             (By.XPATH, "//input[@placeholder='Пароль']"),
+            (By.XPATH, "//input[@placeholder='Password']"),
+            (By.XPATH, "//input[contains(@placeholder, 'парол')]"),
             (By.XPATH, "//label[contains(text(), 'Пароль')]/following-sibling::input"),
+            (By.XPATH, "//label[contains(text(), 'Password')]/following-sibling::input"),
+            (By.XPATH, "//div[contains(@class, 'password')]//input"),
         ]
         
         for by, selector in password_selectors:
             try:
-                password_field = driver.find_element(by, selector)
-                if password_field and password_field.is_displayed():
-                    logger.info(f"Найдено поле пароля: {selector}")
+                elements = driver.find_elements(by, selector)
+                for elem in elements:
+                    if elem and elem.is_displayed() and elem.is_enabled():
+                        password_field = elem
+                        logger.info(f"Найдено поле пароля по селектору: {selector}")
+                        break
+                if password_field:
                     break
-                else:
-                    password_field = None
-            except:
+            except Exception as e:
                 continue
         
+        # Если не нашли, ищем поле с type="password"
         if not password_field:
-            try:
-                password_field = driver.find_element(By.CSS_SELECTOR, "input[type='password']")
-            except:
-                return False, "Поле пароля не найдено"
+            for inp in all_inputs:
+                input_type = inp.get_attribute("type")
+                if input_type == "password":
+                    password_field = inp
+                    logger.info(f"Найдено поле пароля по type='password'")
+                    break
+        
+        if not password_field:
+            screenshot_path = f"debug_password_{int(time.time())}.png"
+            driver.save_screenshot(screenshot_path)
+            logger.error(f"Поле пароля не найдено. Скриншот: {screenshot_path}")
+            return False, f"Поле пароля не найдено. Скриншот сохранен: {screenshot_path}"
         
         password_field.clear()
         password_field.send_keys(password)
         logger.info("Пароль введен")
         time.sleep(1)
         
-        # Поиск поля подтверждения пароля (если есть)
+        # Поиск поля подтверждения пароля
         try:
             confirm_selectors = [
                 (By.ID, "confirm"),
+                (By.ID, "confirm_password"),
                 (By.NAME, "confirm"),
+                (By.NAME, "confirm_password"),
                 (By.CSS_SELECTOR, "input[name='confirm']"),
+                (By.CSS_SELECTOR, "input[name='confirm_password']"),
                 (By.XPATH, "//input[@placeholder='Подтверждение пароля']"),
+                (By.XPATH, "//input[@placeholder='Confirm password']"),
             ]
             for by, selector in confirm_selectors:
                 try:
@@ -170,8 +232,8 @@ def register_rambler_email(email: str, password: str):
                         break
                 except:
                     continue
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"Нет поля подтверждения пароля: {e}")
         
         # Поиск кнопки отправки
         submit_button = None
@@ -180,31 +242,41 @@ def register_rambler_email(email: str, password: str):
             (By.XPATH, "//button[contains(text(), 'Зарегистрироваться')]"),
             (By.XPATH, "//button[contains(text(), 'Регистрация')]"),
             (By.XPATH, "//button[contains(text(), 'Создать')]"),
+            (By.XPATH, "//button[contains(text(), 'Зарегистрировать')]"),
+            (By.XPATH, "//button[contains(text(), 'Register')]"),
             (By.CSS_SELECTOR, "button[type='submit']"),
             (By.CSS_SELECTOR, "button.submit"),
             (By.CSS_SELECTOR, ".submit-button"),
+            (By.CSS_SELECTOR, "input[type='submit']"),
         ]
         
         for by, selector in submit_selectors:
             try:
-                submit_button = driver.find_element(by, selector)
-                if submit_button and submit_button.is_displayed():
-                    logger.info(f"Найдена кнопка: {selector}")
+                elements = driver.find_elements(by, selector)
+                for elem in elements:
+                    if elem and elem.is_displayed() and elem.is_enabled():
+                        submit_button = elem
+                        logger.info(f"Найдена кнопка по селектору: {selector}")
+                        break
+                if submit_button:
                     break
-                else:
-                    submit_button = None
-            except:
+            except Exception as e:
                 continue
         
         if not submit_button:
+            # Ищем любую кнопку на странице
             buttons = driver.find_elements(By.TAG_NAME, "button")
             for btn in buttons:
-                if btn.is_displayed():
+                if btn.is_displayed() and btn.is_enabled():
                     submit_button = btn
+                    logger.info(f"Выбрана кнопка: {btn.text}")
                     break
         
         if not submit_button:
-            return False, "Кнопка отправки не найдена"
+            screenshot_path = f"debug_button_{int(time.time())}.png"
+            driver.save_screenshot(screenshot_path)
+            logger.error(f"Кнопка отправки не найдена. Скриншот: {screenshot_path}")
+            return False, f"Кнопка отправки не найдена. Скриншот сохранен: {screenshot_path}"
         
         submit_button.click()
         logger.info("Форма отправлена")
@@ -214,6 +286,7 @@ def register_rambler_email(email: str, password: str):
         
         # Проверяем результат
         current_url = driver.current_url
+        logger.info(f"URL после отправки: {current_url}")
         
         if "mail" in current_url or "success" in current_url.lower():
             return True, f"{email}:{password}"
@@ -224,10 +297,11 @@ def register_rambler_email(email: str, password: str):
         else:
             # Проверяем наличие сообщений об ошибке
             try:
-                error_msg = driver.find_element(By.CSS_SELECTOR, ".error, .error-message, .alert")
-                error_text = error_msg.text
-                if error_text:
-                    return False, f"Ошибка: {error_text[:100]}"
+                error_msgs = driver.find_elements(By.CSS_SELECTOR, ".error, .error-message, .alert, .notification")
+                for error in error_msgs:
+                    error_text = error.text
+                    if error_text:
+                        return False, f"Ошибка: {error_text[:100]}"
             except:
                 pass
             
@@ -235,7 +309,13 @@ def register_rambler_email(email: str, password: str):
         
     except Exception as e:
         logger.error(f"Ошибка регистрации: {e}")
-        return False, f"Ошибка: {str(e)[:200]}"
+        if driver:
+            try:
+                screenshot_path = f"debug_exception_{int(time.time())}.png"
+                driver.save_screenshot(screenshot_path)
+                return False, f"Ошибка: {str(e)[:150]}. Скриншот: {screenshot_path}"
+            except:
+                return False, f"Ошибка: {str(e)[:200]}"
     finally:
         if driver:
             driver.quit()
@@ -310,7 +390,8 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Причина: {result}\n\n"
                 f"Возможные решения:\n"
                 f"• Используйте команду /check для диагностики\n"
-                f"• Возможно, сайт изменил форму регистрации"
+                f"• Возможно, сайт изменил форму регистрации\n"
+                f"• Проверьте логи в Railway для деталей"
             )
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
