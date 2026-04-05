@@ -8,7 +8,6 @@ RUN apt-get update && apt-get install -y \
     curl \
     libglib2.0-0 \
     libnss3 \
-    libgconf-2-4 \
     libfontconfig1 \
     libxcb1 \
     libx11-6 \
@@ -21,6 +20,9 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     libatk-bridge2.0-0 \
     libgtk-3-0 \
+    libgbm1 \
+    libu2f-udev \
+    libvulkan1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Устанавливаем Google Chrome
