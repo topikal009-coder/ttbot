@@ -32,8 +32,9 @@ def create_driver():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--disable-setuid-sandbox")
+    options.add_argument("--remote-debugging-port=9222")
     
-    # Важно для Railway - указываем путь к Chrome
     options.binary_location = "/usr/bin/google-chrome"
     
     service = Service()
