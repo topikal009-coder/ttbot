@@ -12,13 +12,11 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium_stealth import stealth
 
-# ========== НАСТРОЙКИ ==========
 TELEGRAM_BOT_TOKEN = "8710933878:AAHhqav-ZPa6OIXb5rRIcWH1Wj-dViw2Xgs"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ========== ФУНКЦИИ ==========
 def generate_random_email() -> str:
     prefixes = ["user", "mail", "hello", "world", "test", "student"]
     return f"{random.choice(prefixes)}{random.randint(1000, 9999)}@rambler.ru"
@@ -35,11 +33,14 @@ def create_driver():
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-blink-features=AutomationControlled")
     
+    # Важно для Railway - указываем путь к Chrome
+    options.binary_location = "/usr/bin/google-chrome"
+    
     service = Service()
     driver = webdriver.Chrome(service=service, options=options)
     
     try:
-        stealth(driver, languages=["ru-RU", "ru"], vendor="Google Inc.", platform="Win32")
+        stealth(driver, languages=["ru-RU", "ru"], vendor="Google Inc.", platform="Linux")
     except:
         pass
     
@@ -83,7 +84,6 @@ def register_rambler_email(email: str, password: str):
         if driver:
             driver.quit()
 
-# ========== ОБРАБОТЧИКИ ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🎓 Бот работает!\n\n/register - начать регистрацию\n/check - проверить Selenium")
 
@@ -119,7 +119,6 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.message.reply_text(f"❌ Ошибка: {result}")
 
-# ========== ЗАПУСК ==========
 def main():
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
