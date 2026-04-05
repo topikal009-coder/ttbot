@@ -1,6 +1,5 @@
 FROM python:3.11-slim
 
-# Устанавливаем системные зависимости для Chrome
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -25,22 +24,17 @@ RUN apt-get update && apt-get install -y \
     libvulkan1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Устанавливаем Google Chrome (современный способ без apt-key)
 RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor > /etc/apt/trusted.gpg.d/google.gpg \
     && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update \
     && apt-get install -y google-chrome-stable \
     && rm -rf /var/lib/apt/lists/*
 
-# Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Копируем зависимости и устанавливаем их
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем код бота
 COPY app.py .
 
-# Запускаем бота
 CMD ["python", "app.py"]
